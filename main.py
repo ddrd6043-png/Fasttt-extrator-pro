@@ -1,8 +1,10 @@
+import os
 import json
-import time
 import random
 import asyncio
+import threading
 import aiohttp
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 BOT_TOKEN = "8535220223:AAF9OAlQpNISXFTq4NoKvVAbWECrxAuRKkg"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
@@ -21,6 +23,22 @@ indian_ips = [
     '38.10.0.40', '116.119.109.244', '49.44.183.1', '182.77.55.10', '14.139.85.10'
 ]
 
+# ── Health Server ──────────────────────────────────────────
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args):
+        pass
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    print(f"✅ Health server on port {port}")
+    server.serve_forever()
+
+# ── Bot Functions ──────────────────────────────────────────
 async def send_message(session, chat_id, text, reply_markup=None):
     payload = {
         "chat_id": chat_id,
@@ -37,7 +55,10 @@ async def send_message(session, chat_id, text, reply_markup=None):
 
 async def is_user_member(session, user_id, channel_id):
     try:
-        async with session.get(f"{API_URL}getChatMember?chat_id={channel_id}&user_id={user_id}", timeout=aiohttp.ClientTimeout(total=10)) as r:
+        async with session.get(
+            f"{API_URL}getChatMember?chat_id={channel_id}&user_id={user_id}",
+            timeout=aiohttp.ClientTimeout(total=10)
+        ) as r:
             data = await r.json()
             if data.get("ok"):
                 status = data["result"].get("status", "left").lower()
@@ -76,7 +97,12 @@ async def extract_redirects(session, url):
             "X-Real-IP": random_ip
         }
         try:
-            async with session.get(current_url, headers=headers, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=15)) as r:
+            async with session.get(
+                current_url,
+                headers=headers,
+                allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as r:
                 chain.append(current_url)
                 if r.status in (301, 302, 303, 307, 308) and "Location" in r.headers:
                     current_url = r.headers["Location"]
@@ -87,7 +113,6 @@ async def extract_redirects(session, url):
     return chain
 
 async def handle_update(session, update):
-    # Callback Query
     if "callback_query" in update:
         cb = update["callback_query"]
         chat_id = cb["message"]["chat"]["id"]
@@ -156,8 +181,15 @@ async def handle_update(session, update):
             "Example: <code>https://shortlink.com/abc</code>"
         ))
 
+# ── Main ───────────────────────────────────────────────────
 async def main():
     print("✅ Bot started with ASYNC polling...")
+
+    # Health server alag thread mein
+    t = threading.Thread(target=run_health_server)
+    t.daemon = True
+    t.start()
+
     offset = None
     async with aiohttp.ClientSession() as session:
         while True:
@@ -170,7 +202,6 @@ async def main():
                     if data.get("ok"):
                         updates = data["result"]
                         if updates:
-                            # Sab updates ek saath process
                             await asyncio.gather(*[handle_update(session, u) for u in updates])
                             offset = updates[-1]["update_id"] + 1
             except Exception as e:
