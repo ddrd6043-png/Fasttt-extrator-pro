@@ -5,6 +5,7 @@ import asyncio
 import threading
 import aiohttp
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import time
 
 BOT_TOKEN = "8535220223:AAF9OAlQpNISXFTq4NoKvVAbWECrxAuRKkg"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
@@ -23,19 +24,26 @@ indian_ips = [
     '38.10.0.40', '116.119.109.244', '49.44.183.1', '182.77.55.10', '14.139.85.10'
 ]
 
-# ── Health Server ──────────────────────────────────────────
+# ── Health Server (Turant Start) ──────────────────────────
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"OK")
+        self.wfile.write(b"Bot Running!")
+    
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+    
     def log_message(self, format, *args):
         pass
 
 def run_health_server():
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    print(f"✅ Health server on port {port}")
+    print(f"✅ Health server LIVE on port {port}")
     server.serve_forever()
 
 # ── Bot Functions ──────────────────────────────────────────
@@ -50,8 +58,8 @@ async def send_message(session, chat_id, text, reply_markup=None):
         payload["reply_markup"] = json.dumps(reply_markup)
     try:
         await session.post(f"{API_URL}sendMessage", json=payload, timeout=aiohttp.ClientTimeout(total=10))
-    except:
-        pass
+    except Exception as e:
+        print(f"Send error: {e}")
 
 async def is_user_member(session, user_id, channel_id):
     try:
@@ -183,15 +191,20 @@ async def handle_update(session, update):
 
 # ── Main ───────────────────────────────────────────────────
 async def main():
-    print("✅ Bot started with ASYNC polling...")
-
-    # Health server alag thread mein
+    print("🚀 Bot starting...")
+    
+    # PEHLE Health server start karo (turant port bind)
     t = threading.Thread(target=run_health_server)
     t.daemon = True
     t.start()
-
+    
+    # Thoda wait karo taaki port bind ho jaye
+    time.sleep(2)
+    print("✅ Health server thread started")
+    
     offset = None
     async with aiohttp.ClientSession() as session:
+        print("✅ Bot polling started...")
         while True:
             try:
                 url = f"{API_URL}getUpdates?timeout=10"
@@ -205,7 +218,7 @@ async def main():
                             await asyncio.gather(*[handle_update(session, u) for u in updates])
                             offset = updates[-1]["update_id"] + 1
             except Exception as e:
-                print(f"Error: {e}")
+                print(f"Polling error: {e}")
                 await asyncio.sleep(1)
 
 if __name__ == "__main__":
